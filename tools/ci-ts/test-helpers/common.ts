@@ -124,7 +124,7 @@ export async function waitForService(
 }
 
 /**
- * assertAsync asserts that a condition is evantually met, with a
+ * assertAsync asserts that a condition is eventually met, with a
  * default timeout of 30 seconds
  *
  * @param f function to run every second and check for truthy return value
@@ -136,31 +136,51 @@ export async function assertAsync(
   errorMessage: string,
   timeout = DEFAULT_TIMEOUT_MS,
 ) {
-  return new Promise((res, rej) => {
-    // eslint-disable-next-line
-    let interval: NodeJS.Timeout, timer: NodeJS.Timeout
-
-    function resolveIfFulfilled(fulfilled: boolean) {
-      if (fulfilled === true) {
-        clearTimeout(timer)
-        clearInterval(interval)
-        res()
-      }
+  let start = new Date().getTime()
+  while (true) {
+    console.log('LOOP')
+    const result = await f()
+    if (result === true) {
+      console.log('LOOP SUCCESS', errorMessage)
+      return
     }
+    if (new Date().getTime() >= start + timeout) {
+      console.log('LOOP FAIL', errorMessage)
+      throw new Error(errorMessage)
+    }
+    await sleep(1000)
+  }
+  // return new Promise((res, rej) => {
+  //   // eslint-disable-next-line
+  //   let interval: NodeJS.Timeout, timer: NodeJS.Timeout
 
-    timer = setTimeout(() => {
-      clearInterval(interval)
-      rej(errorMessage)
-    }, timeout)
+  //   function resolveIfFulfilled(fulfilled: boolean) {
+  //     if (fulfilled === true) {
+  //       clearTimeout(timer)
+  //       clearInterval(interval)
+  //       res()
+  //     }
+  //   }
 
-    interval = setInterval(() => {
-      const result = f()
-      if (result instanceof Promise) {
-        result.then(resolveIfFulfilled)
-      } else {
-        resolveIfFulfilled(result)
-      }
-    }, 1000)
+  //   timer = setTimeout(() => {
+  //     clearInterval(interval)
+  //     rej(errorMessage)
+  //   }, timeout)
+
+  //   interval = setInterval(() => {
+  //     const result = f()
+  //     if (result instanceof Promise) {
+  //       result.then(resolveIfFulfilled)
+  //     } else {
+  //       resolveIfFulfilled(result)
+  //     }
+  //   }, 1000)
+  // })
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
   })
 }
 
@@ -178,7 +198,9 @@ export async function assertJobRun(
   errorMessage: string,
 ) {
   await assertAsync(() => {
+      console.log('ASSERT JOB RUN', clClient.name, count, errorMessage)
     const jobRuns = clClient.getJobRuns()
+    console.log('job runs ~>', clClient.name, jobRuns)
     const jobRun = jobRuns[jobRuns.length - 1]
     return jobRuns.length === count && jobRun.status === 'completed'
   }, `${errorMessage} : job not run on ${clClient.name}`)

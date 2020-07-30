@@ -75,19 +75,46 @@ async function assertAggregatorValues(
   roundState2: number,
   msg: string,
 ): Promise<void> {
-  const [la, lr, rr, ls1, ls2] = await Promise.all([
-    fluxAggregator.latestRoundData().then(res => res.answer),
-    fluxAggregator.latestRoundData().then(res => res.roundId),
-    // get earliest eligible round ID by checking a non-existent address
-    fluxAggregator.oracleRoundState(emptyAddress, 0).then(res => res._roundId),
-    fluxAggregator.oracleRoundState(node1Address, 0).then(res => res._roundId),
-    fluxAggregator.oracleRoundState(node2Address, 0).then(res => res._roundId),
-  ])
+  console.log('ASSERT AGGREGATOR VALUES')
+  // const [la, lr, rr, ls1, ls2] = await Promise.all([
+  //   fluxAggregator.latestRoundData().then(res => res.answer),
+  //   fluxAggregator.latestRoundData().then(res => res.roundId),
+  //   // get earliest eligible round ID by checking a non-existent address
+  //   fluxAggregator.oracleRoundState(emptyAddress, 0).then(res => res._roundId),
+  //   fluxAggregator.oracleRoundState(node1Address, 0).then(res => res._roundId),
+  //   fluxAggregator.oracleRoundState(node2Address, 0).then(res => res._roundId),
+  // ])
+  fluxAggregator.latestRoundData().then(roundData => console.log('ROUND DATA ~>', roundData)).catch(err => console.log('ERROR ~>', err))
+  try {
+  const roundData = await fluxAggregator.latestRoundData()
+  console.log('ASSERT AGGREGATOR VALUES roundData ~>', roundData)
+  const la = await fluxAggregator.latestRoundData().then(res => res.answer)
+  console.log('ASSERT AGGREGATOR VALUES la =', la.toString())
+  const lr = await fluxAggregator.latestRoundData().then(res => res.roundId)
+  console.log('ASSERT AGGREGATOR VALUES lr =', lr.toString())
+  // get earliest eligible round ID by checking a non-existent addres
+  const rr = await fluxAggregator.oracleRoundState(emptyAddress, 0).then(res => res._roundId)
+  console.log('ASSERT AGGREGATOR VALUES rr =', rr.toString())
+  const ls1 = await fluxAggregator.oracleRoundState(node1Address, 0).then(res => res._roundId)
+  console.log('ASSERT AGGREGATOR VALUES ls1 =', ls1.toString())
+  const ls2 = await fluxAggregator.oracleRoundState(node2Address, 0).then(res => res._roundId)
+  console.log('ASSERT AGGREGATOR VALUES ls2 =', ls2.toString())
+  console.log('ASSERT AGGREGATOR VALUES ~>', {
+      latestAnswer: la.toString(),
+      latestRound: lr.toString(),
+      reportingRound: rr.toString(),
+      roundState1: ls1.toString(),
+      roundState2: ls2.toString(),
+  })
   matchers.bigNum(latestAnswer, la, `${msg} : latest answer`)
   matchers.bigNum(latestRound, lr, `${msg} : latest round`)
   matchers.bigNum(reportingRound, rr, `${msg} : reporting round`)
   matchers.bigNum(roundState1, ls1, `${msg} : node 1 round state round ID`)
   matchers.bigNum(roundState2, ls2, `${msg} : node 2 round state round ID`)
+} catch (err) {
+    console.log('ERRRRORRRRR ~>', err)
+    throw err
+}
 }
 
 async function assertLatestAnswerEq(n: number) {
@@ -139,7 +166,6 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  await Promise.all([clClient1.unpause(), clClient2.unpause()])
   clClient1.getJobs().forEach(job => clClient1.archiveJob(job.id))
   clClient2.getJobs().forEach(job => clClient2.archiveJob(job.id))
   await Promise.all([
@@ -221,36 +247,79 @@ describe('FluxMonitor / FluxAggregator integration with two nodes', () => {
     )
   })
 
-  it('updates the price', async () => {
+  it.only('updates the price', async () => {
     const node1InitialRunCount = clClient1.getJobRuns().length
     const node2InitialRunCount = clClient2.getJobRuns().length
+    if (node1InitialRunCount !== 0) {
+        throw new Error('node 1 has runs')
+    }
+    if (node2InitialRunCount !== 0) {
+        throw new Error('node 2 has runs')
+    }
 
     fluxMonitorJob.initiators[0].params.address = fluxAggregator.address
     fluxMonitorJob.initiators[0].params.feeds = [EXTERNAL_ADAPTER_URL]
-    clClient1.createJob(JSON.stringify(fluxMonitorJob))
+    const fmJob1 = JSON.stringify(fluxMonitorJob)
+    clClient1.createJob(fmJob1)
+
     fluxMonitorJob.initiators[0].params.feeds = [EXTERNAL_ADAPTER_2_URL]
-    clClient2.createJob(JSON.stringify(fluxMonitorJob))
+    const fmJob2 = JSON.stringify(fluxMonitorJob)
+    clClient2.createJob(fmJob2)
+
+    // Note: dockerode#pause() seems to cause other containers in the environment to
+    // freeze, so instead, we simply archive jobs to simulate Chainlink nodes going
+    // offline.  This has the side effect of deleting the job runs from the DB.
+    // Therefore, our assertions about run counts have to assume we're starting
+    // from 0 after each pause.
+    function pause(clClient: ChainlinkClient) {
+      // clClient.getJobs().forEach(job => clClient.archiveJob(job.id))
+      // console.log('PAUSE: job runs:', clClient.name, clClient.getJobRuns().length)
+      // t.assertAsync(() => clClient.getJobRuns().length === 0, 'job runs were not deleted')
+      clClient.pause()
+    }
+
+    function unpause(clClient: ChainlinkClient, job: string) {
+      // clClient.createJob(job)
+      console.log(job)
+      clClient.unpause()
+    }
+
+    const rd = await fluxAggregator.latestRoundData()
+    console.log('RD ~>', rd)
 
     // initial job run
-    await t.assertJobRun(clClient1, node1InitialRunCount + 1, 'initial update')
-    await t.assertJobRun(clClient2, node2InitialRunCount + 1, 'initial update')
+    await t.assertJobRun(clClient1, node1InitialRunCount + 1, 'initial update, node 1')
+    await t.assertJobRun(clClient2, node2InitialRunCount + 1, 'initial update, node 2')
+    fluxAggregator.latestRoundData().then(roundData => console.log('ROUND DATA ~>', roundData)).catch(err => console.log('ERROR ~>', err))
     await assertAggregatorValues(10000, 1, 2, 2, 2, 'initial round')
-    await clClient1.pause()
-    await clClient2.pause()
+    pause(clClient1)
+    pause(clClient2)
+
+    console.log('==== 1 ====')
 
     // node 1 should still begin round even with unresponsive node 2
     await t.changePriceFeed(EXTERNAL_ADAPTER_URL, 110)
+    console.log('==== 2 ====')
     await t.changePriceFeed(EXTERNAL_ADAPTER_2_URL, 120)
-    await clClient1.unpause()
-    await t.assertJobRun(clClient1, node1InitialRunCount + 2, 'second update')
+    console.log('==== 3 ====')
+    unpause(clClient1, fmJob1)
+    console.log('==== 4 ====')
+    await t.assertJobRun(clClient1, node1InitialRunCount + 1, 'second update, node 1')
+    console.log('==== 5 ====')
     await assertAggregatorValues(10000, 1, 2, 2, 2, 'node 1 only')
-    await clClient1.pause()
+    console.log('==== 6 ====')
+    pause(clClient1)
+    console.log('==== 7 ====')
 
     // node 2 should finish round
-    await clClient2.unpause()
-    await t.assertJobRun(clClient2, node2InitialRunCount + 2, 'second update')
+    unpause(clClient2, fmJob2)
+    console.log('==== 8 ====')
+    await t.assertJobRun(clClient2, node2InitialRunCount + 1, 'second update, node 2')
+    console.log('==== 9 ====')
     await assertAggregatorValues(11500, 2, 3, 3, 3, 'second round')
-    await clClient2.pause()
+    console.log('==== 10 ====')
+    pause(clClient2)
+    console.log('==== 11 ====')
 
     // reduce minAnswers to 1
     await (
@@ -262,19 +331,30 @@ describe('FluxMonitor / FluxAggregator integration with two nodes', () => {
         5,
       )
     ).wait()
+    console.log('==== 12 ====')
     await t.changePriceFeed(EXTERNAL_ADAPTER_URL, 130)
-    await clClient1.unpause()
-    await t.assertJobRun(clClient1, node1InitialRunCount + 3, 'third update')
+    console.log('==== 13 ====')
+    unpause(clClient1, fmJob1)
+    console.log('==== 14 ====')
+    await t.assertJobRun(clClient1, node1InitialRunCount + 1, 'third update')
+    console.log('==== 15 ====')
     await assertAggregatorValues(13000, 3, 3, 4, 3, 'third round')
-    await clClient1.pause()
+    console.log('==== 16 ====')
+    pause(clClient1)
+    console.log('==== 17 ====')
 
     // node should continue to start new rounds alone
     await t.changePriceFeed(EXTERNAL_ADAPTER_URL, 140)
-    await clClient1.unpause()
-    await t.assertJobRun(clClient1, node1InitialRunCount + 4, 'fourth update')
+    console.log('==== 18 ====')
+    unpause(clClient1, fmJob1)
+    console.log('==== 19 ====')
+    await t.assertJobRun(clClient1, node1InitialRunCount + 1, 'fourth update')
+    console.log('==== 20 ====')
     await assertAggregatorValues(14000, 4, 4, 5, 4, 'fourth round')
+    console.log('==== 21 ====')
 
-    await clClient2.unpause()
+    pause(clClient1)
+    pause(clClient2)
   })
 
   it('respects the idle timer duration', async () => {
@@ -301,6 +381,10 @@ describe('FluxMonitor / FluxAggregator integration with two nodes', () => {
     fluxMonitorJob.initiators[0].params.feeds = [EXTERNAL_ADAPTER_2_URL]
     clClient2.createJob(JSON.stringify(fluxMonitorJob))
 
+    function pause(clClient: ChainlinkClient) {
+      clClient.getJobs().forEach(job => clClient.archiveJob(job.id))
+    }
+
     // initial job run
     await t.assertJobRun(clClient1, node1InitialRunCount + 1, 'initial update')
     await t.assertJobRun(clClient2, node2InitialRunCount + 1, 'initial update')
@@ -312,7 +396,7 @@ describe('FluxMonitor / FluxAggregator integration with two nodes', () => {
     await assertAggregatorValues(10000, 2, 3, 3, 3, 'second round')
 
     // third job run without node 2
-    await clClient2.pause()
+    pause(clClient2)
     await t.assertJobRun(clClient1, node1InitialRunCount + 3, 'third update')
     await assertAggregatorValues(10000, 2, 3, 3, 3, 'third round')
   })

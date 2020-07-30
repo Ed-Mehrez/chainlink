@@ -22,6 +22,7 @@ export default class ChainlinkClient {
   clientURL: string
   container: Dockerode.Container
   rootDir: string
+  containerName: string
 
   private API_CREDENTIALS_PATH = '/run/secrets/apicredentials'
 
@@ -29,6 +30,7 @@ export default class ChainlinkClient {
     this.name = name
     this.clientURL = clientURL
     this.container = docker.getContainer(containerName)
+    this.containerName = containerName
     this.rootDir = path.join('~', name)
   }
 
@@ -36,6 +38,7 @@ export default class ChainlinkClient {
    * pauses the docker container running this CL node
    */
   public async pause() {
+    console.log('PAUSE', this.containerName, this.container.id)
     const paused = (await this.state()).Paused
     if (!paused) await this.container.pause()
   }
@@ -44,6 +47,7 @@ export default class ChainlinkClient {
    * unpauses the docker container running this CL node
    */
   public async unpause() {
+    console.log('UNPAUSE', this.containerName, this.container.id)
     const paused = (await this.state()).Paused
     if (paused) await this.container.unpause()
   }

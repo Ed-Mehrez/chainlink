@@ -119,7 +119,7 @@ case "$1" in
     set +e
     $ts_test run  integration-ts /bin/sh -c \
       "docker cp chainlink-node:/usr/local/bin/chainlink /usr/local/bin/chainlink \
-      && yarn workspace @chainlink/ci-ts test --runInBand ${@:2}"
+      && yarn workspace @chainlink/ci-ts test --runInBand --detectOpenHandles --logHeapUsage ${@:2}"
     exit_code=$?
     set -e
     save_test_logs
@@ -132,7 +132,7 @@ case "$1" in
     set +e
     $dev_ts_integration run integration-ts /bin/sh -c \
       "docker cp chainlink-node:/usr/local/bin/chainlink /usr/local/bin/chainlink \
-      && yarn workspace @chainlink/ci-ts test --verbose --runInBand ${@:2}"
+      && yarn workspace @chainlink/ci-ts test --verbose --runInBand --detectOpenHandles --logHeapUsage ${@:2}"
     exit_code=$?
     set -e
     save_test_logs
